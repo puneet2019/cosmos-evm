@@ -21,8 +21,9 @@ type ErrorGasOverflow struct {
 }
 
 type infiniteGasMeterWithLimit struct {
-	consumed storetypes.Gas
-	limit    storetypes.Gas
+	consumed   storetypes.Gas
+	limit      storetypes.Gas
+	rwConsumed storetypes.Gas
 }
 
 // NewInfiniteGasMeterWithLimit returns a reference to a new infiniteGasMeter.
@@ -103,4 +104,21 @@ func (g *infiniteGasMeterWithLimit) String() string {
 // GasRemaining returns MaxUint64 since limit is not confined in infiniteGasMeter.
 func (g *infiniteGasMeterWithLimit) GasRemaining() storetypes.Gas {
 	return math.MaxUint64
+}
+
+// RwConsumed returns the storage read/write gas consumed.
+// Required by the moca cosmos-sdk fork's extended GasMeter interface.
+func (g *infiniteGasMeterWithLimit) RwConsumed() storetypes.Gas {
+	return g.rwConsumed
+}
+
+// ConsumeRw adds the given amount to the storage read/write gas consumed.
+// Required by the moca cosmos-sdk fork's extended GasMeter interface.
+func (g *infiniteGasMeterWithLimit) ConsumeRw(amount storetypes.Gas, descriptor string) {
+	var overflow bool
+	g.rwConsumed, overflow = addUint64Overflow(g.rwConsumed, amount)
+	if overflow {
+		g.rwConsumed = math.MaxUint64
+		panic(ErrorGasOverflow{descriptor})
+	}
 }
