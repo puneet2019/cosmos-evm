@@ -10,7 +10,6 @@ package types
 import (
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/core/vm"
 	geth "github.com/ethereum/go-ethereum/params"
 )
 
@@ -34,9 +33,8 @@ func (ec *EVMConfigurator) Configure() error {
 		return err
 	}
 
-	if err := vm.ExtendActivators(ec.extendedEIPs); err != nil {
-		return err
-	}
+	// moca: vm.ExtendActivators dropped — not present in moca's go-ethereum fork.
+	_ = ec.extendedEIPs
 
 	// After applying modifiers the configurator is sealed. This way, it is not possible
 	// to call the configure method twice.

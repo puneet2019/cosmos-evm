@@ -8,7 +8,9 @@ import (
 // OpCodeHooks extends the geth OpCodeHooks interface to add custom hooks for EVM operations.
 // The hooks run before the respective opcode execution every time they are called.
 type OpCodeHooks interface {
-	vm.OpCodeHooks
+	// moca: vm.OpCodeHooks embed dropped — moca's go-ethereum fork does not provide it.
+	CreateHook(evm *vm.EVM, caller common.Address) error
+	CallHook(evm *vm.EVM, caller common.Address, recipient common.Address) error
 	AddCallHooks(hooks ...CallHook)
 	AddCreateHooks(hooks ...CreateHook)
 }

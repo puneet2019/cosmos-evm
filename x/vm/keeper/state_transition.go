@@ -56,19 +56,9 @@ func (k *Keeper) NewEVM(
 	}
 	vmConfig := k.VMConfig(ctx, msg, cfg, tracer)
 
-	signer := msg.From()
-	accessControl := types.NewRestrictedPermissionPolicy(&cfg.Params.AccessControl, signer)
-
-	// Set hooks for the EVM opcodes
-	evmHooks := types.NewDefaultOpCodesHooks()
-	evmHooks.AddCreateHooks(
-		accessControl.GetCreateHook(signer),
-	)
-	evmHooks.AddCallHooks(
-		accessControl.GetCallHook(signer),
-		k.GetPrecompilesCallHook(ctx),
-	)
-	return vm.NewEVMWithHooks(evmHooks, blockCtx, txCtx, stateDB, cfg.ChainConfig, vmConfig)
+	// moca: opcode hooks dropped — moca's go-ethereum fork has no NewEVMWithHooks.
+	// Access-control and precompile call hooks are not wired here as a result.
+	return vm.NewEVM(blockCtx, txCtx, stateDB, cfg.ChainConfig, vmConfig)
 }
 
 // GetHashFn implements vm.GetHashFunc for Ethermint. It handles 3 cases:

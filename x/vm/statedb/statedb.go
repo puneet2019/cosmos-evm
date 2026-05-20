@@ -64,6 +64,10 @@ type StateDB struct {
 
 	// The count of calls to precompiles
 	precompileCallsCounter uint8
+
+	// transientStorage holds EIP-1153 transient storage.
+	// moca compat: required by moca's go-ethereum fork vm.StateDB interface.
+	transientStorage map[common.Address]map[common.Hash]common.Hash
 }
 
 // New creates a new state from a given trie.
