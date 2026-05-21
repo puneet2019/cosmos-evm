@@ -285,6 +285,13 @@ func (k *Keeper) GetBalance(ctx sdk.Context, addr common.Address) *big.Int {
 	return coin.Amount.BigInt()
 }
 
+// ChainID returns the EIP-155 chain id of the EVM, sourced from the global EVM
+// chain config. Added for moca ante-handler compatibility (moca's ante
+// decorators depend on an EVMKeeper.ChainID() accessor).
+func (k Keeper) ChainID() *big.Int {
+	return types.GetEthChainConfig().ChainID
+}
+
 // GetBaseFee returns current base fee, return values:
 // - `nil`: london hardfork not enabled.
 // - `0`: london hardfork enabled but feemarket is not enabled.
