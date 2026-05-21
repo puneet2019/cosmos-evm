@@ -602,13 +602,105 @@ func (k Keeper) TraceBlock(c context.Context, req *types.QueryTraceBlockRequest)
 	}, nil
 }
 
-// traceTx do trace on one transaction, it returns a tuple: (traceResult, nextLogIndex, error).
+// TraceCall configures a new tracer according to the provided configuration,
+// and executes the given call (eth_call style transaction args) in the provided
+// environment. The return value will be tracer dependent. It powers the
+// `debug_traceCall` JSON-RPC method.
+func (k Keeper) TraceCall(c context.Context, req *types.QueryTraceCallRequest) (*types.QueryTraceCallResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "empty request")
+	}
+
+	if req.TraceConfig != nil && req.TraceConfig.Limit < 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "output limit cannot be negative, got %d", req.TraceConfig.Limit)
+	}
+
+	// minus one to get the context of block beginning
+	contextHeight := req.BlockNumber - 1
+	if contextHeight < 1 {
+		// 0 is a special value in `ContextWithHeight`
+		contextHeight = 1
+	}
+
+	ctx := sdk.UnwrapSDKContext(c)
+	ctx = ctx.WithBlockHeight(contextHeight)
+	ctx = ctx.WithBlockTime(req.BlockTime)
+	ctx = ctx.WithHeaderHash(common.Hex2Bytes(req.BlockHash))
+
+	cfg, err := k.EVMConfig(ctx, GetProposerAddress(ctx, req.ProposerAddress))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to load evm config: %s", err.Error())
+	}
+
+	// compute and use base fee of the height that is being traced
+	baseFee := k.feeMarketWrapper.CalculateBaseFee(ctx)
+	if baseFee != nil {
+		cfg.BaseFee = baseFee
+	}
+
+	var args types.TransactionArgs
+	if err := json.Unmarshal(req.Args, &args); err != nil {
+		return nil, err
+	}
+
+	// ToMessage expects the correct nonce to be set in the args
+	nonce := k.GetNonce(ctx, args.GetFrom())
+	args.Nonce = (*hexutil.Uint64)(&nonce)
+
+	msg, err := args.ToMessage(req.GasCap, cfg.BaseFee)
+	if err != nil {
+		return nil, err
+	}
+
+	txConfig := statedb.NewEmptyTxConfig(common.BytesToHash(ctx.HeaderHash()))
+
+	var tracerConfig json.RawMessage
+	if req.TraceConfig != nil && req.TraceConfig.TracerJsonConfig != "" {
+		// ignore error. default to no traceConfig
+		_ = json.Unmarshal([]byte(req.TraceConfig.TracerJsonConfig), &tracerConfig)
+	}
+
+	result, _, err := k.traceMsg(ctx, cfg, txConfig, msg, req.TraceConfig, false, tracerConfig)
+	if err != nil {
+		// error will be returned with detail status from traceMsg
+		return nil, err
+	}
+
+	resultData, err := json.Marshal(result)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &types.QueryTraceCallResponse{
+		Data: resultData,
+	}, nil
+}
+
+// traceTx decodes the transaction into a core message and delegates to
+// traceMsg. It returns a tuple: (traceResult, nextLogIndex, error).
 func (k *Keeper) traceTx(
 	ctx sdk.Context,
 	cfg *statedb.EVMConfig,
 	txConfig statedb.TxConfig,
 	signer ethtypes.Signer,
 	tx *ethtypes.Transaction,
+	traceConfig *types.TraceConfig,
+	commitMessage bool,
+	tracerJSONConfig json.RawMessage,
+) (*interface{}, uint, error) {
+	msg, err := tx.AsMessage(signer, cfg.BaseFee)
+	if err != nil {
+		return nil, 0, status.Error(codes.Internal, err.Error())
+	}
+	return k.traceMsg(ctx, cfg, txConfig, msg, traceConfig, commitMessage, tracerJSONConfig)
+}
+
+// traceMsg do trace on one core message, it returns a tuple: (traceResult, nextLogIndex, error).
+func (k *Keeper) traceMsg(
+	ctx sdk.Context,
+	cfg *statedb.EVMConfig,
+	txConfig statedb.TxConfig,
+	msg ethtypes.Message,
 	traceConfig *types.TraceConfig,
 	commitMessage bool,
 	tracerJSONConfig json.RawMessage,
@@ -620,10 +712,6 @@ func (k *Keeper) traceTx(
 		err       error
 		timeout   = defaultTraceTimeout
 	)
-	msg, err := tx.AsMessage(signer, cfg.BaseFee)
-	if err != nil {
-		return nil, 0, status.Error(codes.Internal, err.Error())
-	}
 
 	if traceConfig == nil {
 		traceConfig = &types.TraceConfig{}
